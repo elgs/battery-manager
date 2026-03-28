@@ -9,6 +9,7 @@ A macOS menu bar app for monitoring battery status and controlling charging on A
 - Auto charge management with configurable upper/lower bounds
 - Animated menu bar icon with charge level indicator
 - Pin the popover panel to keep it open
+- Launch at login option
 
 ## Requirements
 
