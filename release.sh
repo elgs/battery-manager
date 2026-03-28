@@ -45,8 +45,9 @@ mkdir -p "$APP_DIR/Contents/Resources"
 cp "$REPO_DIR/.build/release/BatteryManager" "$APP_DIR/Contents/MacOS/BatteryManager"
 cp "$REPO_DIR/.build/release/SMCWriter" "$APP_DIR/Contents/MacOS/SMCWriter"
 
-# Write version file
+# Write version file and copy icon
 echo "$VERSION" > "$APP_DIR/Contents/Resources/version.txt"
+cp "$REPO_DIR/BatteryManager.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 
 # Create Info.plist
 cat > "$APP_DIR/Contents/Info.plist" << PLIST
@@ -70,6 +71,8 @@ cat > "$APP_DIR/Contents/Info.plist" << PLIST
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHighResolutionCapable</key>

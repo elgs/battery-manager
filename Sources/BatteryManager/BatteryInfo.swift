@@ -51,8 +51,8 @@ final class BatteryMonitor: ObservableObject {
         // Load persisted auto-manage settings
         let defaults = UserDefaults.standard
         self.autoManageEnabled = defaults.bool(forKey: "autoManageEnabled")
-        self.chargeLowerBound = defaults.object(forKey: "chargeLowerBound") as? Int ?? 20
-        self.chargeUpperBound = defaults.object(forKey: "chargeUpperBound") as? Int ?? 80
+        self.chargeLowerBound = defaults.object(forKey: "chargeLowerBound") as? Int ?? 40
+        self.chargeUpperBound = defaults.object(forKey: "chargeUpperBound") as? Int ?? 60
 
         let wasPaused = FileManager.default.fileExists(atPath: Self.pausedFlagPath)
 
