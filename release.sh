@@ -14,7 +14,8 @@
 #
 set -euo pipefail
 
-source "$(dirname "$0")/.project.env"
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$REPO_DIR/.project.env"
 
 VERSION="${1:-}"
 if [ -z "$VERSION" ]; then
@@ -32,6 +33,7 @@ echo "==> Tagging v$VERSION..."
 git tag -f "v$VERSION"
 
 echo "==> Building Release..."
+cd "$REPO_DIR"
 swift build -c release 2>&1
 
 echo "==> Creating app bundle..."
@@ -40,8 +42,8 @@ mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
 # Copy binaries
-cp .build/release/BatteryManager "$APP_DIR/Contents/MacOS/BatteryManager"
-cp .build/release/SMCWriter "$APP_DIR/Contents/MacOS/SMCWriter"
+cp "$REPO_DIR/.build/release/BatteryManager" "$APP_DIR/Contents/MacOS/BatteryManager"
+cp "$REPO_DIR/.build/release/SMCWriter" "$APP_DIR/Contents/MacOS/SMCWriter"
 
 # Write version file
 echo "$VERSION" > "$APP_DIR/Contents/Resources/version.txt"
@@ -113,6 +115,7 @@ SHA256=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
 echo "==> DMG SHA256: $SHA256"
 
 echo "==> Pushing tag..."
+cd "$REPO_DIR"
 git push origin "v$VERSION" -f
 
 echo "==> Updating GitHub release v$VERSION..."
