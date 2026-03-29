@@ -267,6 +267,7 @@ if action.hasPrefix("watchdog:") {
             // App is gone — clean up
             if let conn = smcOpen() {
                 _ = smcWriteKey(conn, "CHIE", [0x00])
+                _ = smcWriteKey(conn, "CHTE", [0x00, 0x00, 0x00, 0x00])
                 IOServiceClose(conn)
             }
             // Wait for PD renegotiation to settle before restoring sleep
@@ -312,13 +313,26 @@ case "allow":
     }
 
 case "nodischarge":
-    // Clears CHIE, waits for PD renegotiation to settle, then restores sleep.
+    // Kill any watchdog processes first (we're already root).
+    let killTask = Process()
+    killTask.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+    killTask.arguments = ["-f", "\(AppConstants.helperPath) watchdog:"]
+    killTask.standardInput = FileHandle.nullDevice
+    killTask.standardOutput = FileHandle.nullDevice
+    killTask.standardError = FileHandle.nullDevice
+    try? killTask.run()
+    killTask.waitUntilExit()
+
+    // Clears CHIE and restores sleep if discharge was active.
     let chieValue: [UInt8] = [0x00]
+    let wasDischarging = FileManager.default.fileExists(atPath: savedSleepPath)
     if smcWriteKey(conn, "CHIE", chieValue) {
-        // Wait for USB-C PD renegotiation to complete before re-enabling
-        // clamshell sleep, otherwise the brief display disruption triggers sleep.
-        sleep(3)
-        _ = setDischargeSleepPrevention(enabled: false)
+        if wasDischarging {
+            // Wait for USB-C PD renegotiation to complete before re-enabling
+            // clamshell sleep, otherwise the brief display disruption triggers sleep.
+            sleep(3)
+            _ = setDischargeSleepPrevention(enabled: false)
+        }
         print("OK: active discharge disabled")
         exit(0)
     } else {

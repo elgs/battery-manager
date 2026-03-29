@@ -62,12 +62,15 @@ final class BatteryMonitor: ObservableObject {
 
         // Always start fresh — clear CHTE/CHIE and kill orphaned watchdogs.
         // Auto-manage will re-evaluate and re-inhibit on the first refresh if needed.
+        // Only run if sudo helper is installed (otherwise there's nothing to clean up,
+        // and sudo would prompt for a password).
         chargingPaused = false
-        smcQueue.async { [weak self] in
-            self?.killOrphanedDischargeProcesses()
-            _ = self?.runSMCWriteViaSudo("allow")
-            _ = self?.runSMCWriteViaSudo("nodischarge")
-            NSLog("BatteryManager: Cleared CHTE/CHIE on launch")
+        if isSudoRuleInstalled {
+            smcQueue.async { [weak self] in
+                _ = self?.runSMCWriteViaSudo("nodischarge")
+                _ = self?.runSMCWriteViaSudo("allow")
+                NSLog("BatteryManager: Cleared CHTE/CHIE on launch")
+            }
         }
 
         refresh()
@@ -214,24 +217,12 @@ final class BatteryMonitor: ObservableObject {
 
     // MARK: - SMC Write
 
-    /// Kill any orphaned SMCWriter watchdog processes (they run as root).
-    private func killOrphanedDischargeProcesses() {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-        task.arguments = ["pkill", "-f", "\(Self.helperPath) watchdog:"]
-        task.standardInput = FileHandle.nullDevice
-        task.standardOutput = FileHandle.nullDevice
-        task.standardError = FileHandle.nullDevice
-        try? task.run()
-        task.waitUntilExit()
-    }
-
     /// Start the discharge daemon. It writes CHIE, sets sleep prevention,
     /// then spawns a watchdog daemon via posix_spawn that monitors the app
     /// PID and cleans up if the app dies.
     private func startDischarge() -> Bool {
-        // Clean up any stale daemon first
-        killOrphanedDischargeProcesses()
+        // Clean up any stale watchdog/CHIE/sleep state first
+        _ = runSMCWriteViaSudo("nodischarge")
 
         let ok = runSMCWriteViaSudo("discharge:\(ProcessInfo.processInfo.processIdentifier)")
         if ok {
@@ -240,11 +231,9 @@ final class BatteryMonitor: ObservableObject {
         return ok
     }
 
-    /// Stop discharge: clear CHIE and restore sleep via one-shot command,
-    /// then kill any watchdog daemons.
+    /// Stop discharge: clear CHIE, kill watchdog, and restore sleep via one-shot command.
     private func stopDischarge() {
         _ = runSMCWriteViaSudo("nodischarge")
-        killOrphanedDischargeProcesses()
         NSLog("BatteryManager: discharge stopped")
     }
 
