@@ -75,9 +75,14 @@ brew uninstall battery-manager
 
 Or delete `BatteryManager.app` from Applications.
 
-### Revoke admin access
+### Remove SMCWriter and admin access
 
-**From the UI:** Click **Revoke Admin Access** in the app's popover panel. This removes the helper binary and sudoers rule (prompts for your admin password).
+Charge control installs two privileged files that persist after the app is deleted:
+
+- `/usr/local/bin/az-battery-manager-smc` - the SMCWriter helper binary (runs as root to write SMC keys)
+- `/etc/sudoers.d/az-battery-manager` - the sudoers rule that allows passwordless execution of the helper
+
+**From the UI:** Click **Revoke Admin Access** in the app's popover panel. This removes both files (prompts for your admin password).
 
 **From the command line:**
 
