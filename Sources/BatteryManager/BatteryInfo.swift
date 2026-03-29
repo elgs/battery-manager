@@ -138,9 +138,10 @@ final class BatteryMonitor: ObservableObject {
 
             let cmd = "rm -f '\(Self.sudoersPath)' '\(Self.helperPath)' /etc/sudoers.d/battery-manager"
 
-            // Clear SMC state BEFORE removing the helper (need sudo access)
-            if wasDischarging { self.runSMCWrite("nodischarge") }
-            if wasPaused { self.runSMCWrite("allow") }
+            // Always clear all SMC state BEFORE removing the helper (need sudo access).
+            // Use unconditional writes since in-memory state may not reflect actual SMC state.
+            self.runSMCWriteViaSudo("nodischarge")
+            self.runSMCWriteViaSudo("allow")
 
             let ok = self.runAsAdmin(cmd)
 
