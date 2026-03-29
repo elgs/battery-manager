@@ -22,8 +22,11 @@ struct BatteryState {
 final class BatteryMonitor: ObservableObject {
     @Published var state: BatteryState?
     @Published var chargingPaused: Bool = false
+    @Published var activeDischarging: Bool = false
     @Published var lastError: String?
     @Published var pinned: Bool = false
+    @Published var smcCHTE: String = "?"
+    @Published var smcCHIE: String = "?"
 
     @Published var autoManageEnabled: Bool {
         didSet {
@@ -58,16 +61,21 @@ final class BatteryMonitor: ObservableObject {
         if wasPaused && autoManageEnabled {
             // Auto-manage is on — restore paused state so it can resume control
             chargingPaused = true
-            NSLog("BatteryManager: Restored charge inhibit for auto-manage")
+            // Still clear CHIE — discharge should never persist across restarts
+            smcQueue.async { [weak self] in
+                self?.killOrphanedDischargeProcesses()
+                _ = self?.runSMCWriteViaSudo("nodischarge")
+                NSLog("BatteryManager: Restored charge inhibit, cleared CHIE on launch")
+            }
         } else {
-            // Always clear CHTE on launch when not intentionally paused.
-            // The paused flag lives in the temp directory and gets cleaned on reboot,
-            // but CHTE persists in the SMC — so we must proactively clear it.
+            // Clear both CHTE and CHIE on launch
             chargingPaused = false
             try? FileManager.default.removeItem(atPath: Self.pausedFlagPath)
             smcQueue.async { [weak self] in
-                self?.runSMCWrite("allow")
-                NSLog("BatteryManager: Cleared CHTE on launch")
+                self?.killOrphanedDischargeProcesses()
+                _ = self?.runSMCWriteViaSudo("allow")
+                _ = self?.runSMCWriteViaSudo("nodischarge")
+                NSLog("BatteryManager: Cleared CHTE/CHIE on launch")
             }
         }
 
@@ -79,18 +87,26 @@ final class BatteryMonitor: ObservableObject {
             forName: NSApplication.willTerminateNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            guard let self = self, self.chargingPaused else { return }
-            if self.autoManageEnabled {
-                // Auto-manage is on — keep CHTE set so charging stays inhibited
-                // between app quit and restart. The paused flag stays too, so
-                // init() will restore the state on next launch.
-                return
-            }
-            // Manual pause — clear CHTE so we don't leave charging stuck
+            guard let self = self else { return }
+            guard self.chargingPaused || self.activeDischarging else { return }
+
             let done = DispatchSemaphore(value: 0)
             self.smcQueue.async {
-                self.runSMCWrite("allow")
-                try? FileManager.default.removeItem(atPath: Self.pausedFlagPath)
+                // Always clear CHIE / restore sleep settings on quit
+                if self.activeDischarging {
+                    self.runSMCWrite("nodischarge")
+                }
+
+                if self.chargingPaused && self.autoManageEnabled {
+                    // Auto-manage — keep CHTE set so charging stays inhibited
+                    // between app quit and restart. The paused flag stays too,
+                    // so init() will restore the state on next launch.
+                } else if self.chargingPaused {
+                    // Manual pause — clear CHTE so we don't leave charging stuck
+                    self.runSMCWrite("allow")
+                    try? FileManager.default.removeItem(atPath: Self.pausedFlagPath)
+                }
+
                 done.signal()
             }
             _ = done.wait(timeout: .now() + 3.0)
@@ -112,16 +128,27 @@ final class BatteryMonitor: ObservableObject {
             && FileManager.default.fileExists(atPath: Self.helperPath)
     }
 
+    /// Check if the installed helper is older than the bundled one
+    private var isHelperStale: Bool {
+        let fm = FileManager.default
+        guard let installed = try? fm.attributesOfItem(atPath: Self.helperPath)[.modificationDate] as? Date,
+              let bundled = try? fm.attributesOfItem(atPath: smcWriterPath)[.modificationDate] as? Date
+        else { return false }
+        return bundled > installed
+    }
+
     /// Remove the sudoers rule and helper binary.
     /// If charging is paused, resumes charging via sudo BEFORE removing the rule.
     func removeSudoRule() {
         let wasPaused = self.chargingPaused
+        let wasDischarging = self.activeDischarging
         smcQueue.async { [weak self] in
             guard let self = self else { return }
 
             let cmd = "rm -f '\(Self.sudoersPath)' '\(Self.helperPath)' /etc/sudoers.d/battery-manager"
 
-            // Resume charging BEFORE removing the helper (need sudo access)
+            // Clear SMC state BEFORE removing the helper (need sudo access)
+            if wasDischarging { self.runSMCWrite("nodischarge") }
             if wasPaused { self.runSMCWrite("allow") }
 
             let ok = self.runAsAdmin(cmd)
@@ -130,10 +157,14 @@ final class BatteryMonitor: ObservableObject {
                 if ok && !self.isSudoRuleInstalled {
                     self.autoManageEnabled = false
                     self.chargingPaused = false
+                    self.activeDischarging = false
                     try? FileManager.default.removeItem(atPath: Self.pausedFlagPath)
-                } else if wasPaused {
-                    // User cancelled — re-inhibit since we cleared it
-                    self.smcQueue.async { self.runSMCWrite("inhibit") }
+                } else {
+                    // User cancelled — restore previous state
+                    self.smcQueue.async {
+                        if wasPaused { self.runSMCWrite("inhibit") }
+                        if wasDischarging { _ = self.startDischarge() }
+                    }
                 }
                 self.objectWillChange.send()
             }
@@ -187,7 +218,7 @@ final class BatteryMonitor: ObservableObject {
     /// Ensure sudo helper is installed (prompts for password on background queue).
     /// Calls completion on the main queue with success/failure.
     func ensureSudoInstalled(completion: @escaping (Bool) -> Void) {
-        if isSudoRuleInstalled {
+        if isSudoRuleInstalled && !isHelperStale {
             completion(true)
             return
         }
@@ -199,6 +230,40 @@ final class BatteryMonitor: ObservableObject {
 
     // MARK: - SMC Write
 
+    /// Kill any orphaned SMCWriter watchdog/discharge processes from a previous crash.
+    private func killOrphanedDischargeProcesses() {
+        // Kill watchdog daemons (the long-lived process)
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        task.arguments = ["-f", "\(Self.helperPath) watchdog:"]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        try? task.run()
+        task.waitUntilExit()
+    }
+
+    /// Start the discharge daemon. It writes CHIE, sets sleep prevention,
+    /// then spawns a watchdog daemon via posix_spawn that monitors the app
+    /// PID and cleans up if the app dies.
+    private func startDischarge() -> Bool {
+        // Clean up any stale daemon first
+        killOrphanedDischargeProcesses()
+
+        let ok = runSMCWriteViaSudo("discharge:\(ProcessInfo.processInfo.processIdentifier)")
+        if ok {
+            NSLog("BatteryManager: discharge daemon started")
+        }
+        return ok
+    }
+
+    /// Stop discharge: clear CHIE and restore sleep via one-shot command,
+    /// then kill any watchdog daemons.
+    private func stopDischarge() {
+        _ = runSMCWriteViaSudo("nodischarge")
+        killOrphanedDischargeProcesses()
+        NSLog("BatteryManager: discharge stopped")
+    }
+
     /// Run the SMCWriter helper via sudo (no password prompt).
     /// Requires the sudoers helper to be installed first via ensureSudoInstalled().
     @discardableResult
@@ -207,7 +272,15 @@ final class BatteryMonitor: ObservableObject {
             NSLog("BatteryManager: sudo helper not installed, cannot write SMC")
             return false
         }
-        return runSMCWriteViaSudo(arg)
+        switch arg {
+        case "discharge":
+            return startDischarge()
+        case "nodischarge":
+            stopDischarge()
+            return true
+        default:
+            return runSMCWriteViaSudo(arg)
+        }
     }
 
     private func runSMCWriteViaSudo(_ arg: String) -> Bool {
@@ -228,6 +301,102 @@ final class BatteryMonitor: ObservableObject {
         } catch {
             NSLog("BatteryManager: failed to run sudo: %@", error.localizedDescription)
             return false
+        }
+    }
+
+    // MARK: - SMC Read (no root required)
+
+    /// SMC struct layout — must match SMCWriter's SMCKeyData exactly.
+    private struct SMCKeyData {
+        struct Vers { var major: UInt8 = 0; var minor: UInt8 = 0; var build: UInt8 = 0; var reserved: UInt8 = 0; var release: UInt16 = 0 }
+        struct PLimitData { var version: UInt16 = 0; var length: UInt16 = 0; var cpuPLimit: UInt32 = 0; var gpuPLimit: UInt32 = 0; var memPLimit: UInt32 = 0 }
+        struct KeyInfo { var dataSize: UInt32 = 0; var dataType: UInt32 = 0; var dataAttributes: UInt8 = 0 }
+        var key: UInt32 = 0
+        var vers: Vers = Vers()
+        var pLimitData: PLimitData = PLimitData()
+        var keyInfo: KeyInfo = KeyInfo()
+        var padding: UInt16 = 0
+        var result: UInt8 = 0; var status: UInt8 = 0; var data8: UInt8 = 0
+        var data32: UInt32 = 0
+        var bytes: (UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
+                    UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
+                    UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
+                    UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8) =
+            (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+    }
+
+    private static func fourCharCode(_ str: String) -> UInt32 {
+        var result: UInt32 = 0
+        for char in str.utf8.prefix(4) { result = (result << 8) | UInt32(char) }
+        return result
+    }
+
+    /// Read a single SMC key and return its raw bytes, or nil on failure.
+    private static func smcReadKey(_ key: String) -> [UInt8]? {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault,
+            IOServiceMatching("AppleSMCKeysEndpoint"))
+        let svc = service != MACH_PORT_NULL ? service :
+            IOServiceGetMatchingService(kIOMainPortDefault,
+                IOServiceMatching("AppleSMC"))
+        guard svc != MACH_PORT_NULL else { return nil }
+        defer { IOObjectRelease(svc) }
+
+        var conn: io_connect_t = 0
+        guard IOServiceOpen(svc, mach_task_self_, 0, &conn) == kIOReturnSuccess else { return nil }
+        defer { IOServiceClose(conn) }
+
+        let smcKey = fourCharCode(key)
+        let inputSize = MemoryLayout<SMCKeyData>.size
+        var outputSize = MemoryLayout<SMCKeyData>.size
+
+        // Step 1: get key info
+        var input = SMCKeyData()
+        var output = SMCKeyData()
+        input.key = smcKey
+        input.data8 = 9 // kSMCGetKeyInfo
+        guard IOConnectCallStructMethod(conn, 2, &input, inputSize, &output, &outputSize) == kIOReturnSuccess else { return nil }
+
+        let dataSize = output.keyInfo.dataSize
+        guard dataSize > 0 && dataSize <= 32 else { return nil }
+
+        // Step 2: read value
+        input = SMCKeyData()
+        input.key = smcKey
+        input.keyInfo.dataSize = dataSize
+        input.data8 = 5 // kSMCReadKey
+        output = SMCKeyData()
+        outputSize = MemoryLayout<SMCKeyData>.size
+        guard IOConnectCallStructMethod(conn, 2, &input, inputSize, &output, &outputSize) == kIOReturnSuccess else { return nil }
+
+        var raw = output.bytes
+        return withUnsafeBytes(of: &raw) { Array($0.prefix(Int(dataSize))) }
+    }
+
+    private static func formatSMCValue(_ bytes: [UInt8]) -> String {
+        let hex = bytes.map { String(format: "%02x", $0) }.joined(separator: " ")
+        let numeric: String? = bytes.withUnsafeBytes { buf -> String? in
+            switch bytes.count {
+            case 1: return "\(buf.load(as: UInt8.self))"
+            case 2: return "\(buf.load(as: UInt16.self))"
+            case 4: return "\(buf.load(as: UInt32.self))"
+            default: return nil
+            }
+        }
+        if let numeric { return "\(numeric) (0x\(hex))" }
+        return "0x\(hex)"
+    }
+
+    /// Read CHTE and CHIE from SMC and format for display.
+    func refreshSMCKeys() {
+        if let bytes = Self.smcReadKey("CHTE") {
+            smcCHTE = Self.formatSMCValue(bytes)
+        } else {
+            smcCHTE = "n/a"
+        }
+        if let bytes = Self.smcReadKey("CHIE") {
+            smcCHIE = Self.formatSMCValue(bytes)
+        } else {
+            smcCHIE = "n/a"
         }
     }
 
@@ -293,10 +462,14 @@ final class BatteryMonitor: ObservableObject {
                     batteryAgeYears: b.batteryAgeYears, batteryAgeDays: b.batteryAgeDays
                 )
             } else {
-                // Adapter disconnected — clear inhibit so charging works when plugged back in
+                // Adapter disconnected — clear inhibit/discharge so charging works when plugged back in
                 chargingPaused = false
+                activeDischarging = false
                 try? FileManager.default.removeItem(atPath: Self.pausedFlagPath)
-                smcQueue.async { [weak self] in self?.runSMCWrite("allow") }
+                smcQueue.async { [weak self] in
+                    self?.runSMCWrite("allow")
+                    self?.runSMCWrite("nodischarge")
+                }
             }
         }
 
@@ -415,6 +588,39 @@ final class BatteryMonitor: ObservableObject {
     }
 
     // MARK: - Toggle
+
+    func toggleDischarging() {
+        let shouldDischarge = !activeDischarging
+        if shouldDischarge {
+            guard let state = state, state.adapterConnected else {
+                lastError = "No power adapter connected"
+                return
+            }
+        }
+
+        ensureSudoInstalled { [weak self] ok in
+            guard let self = self, ok else {
+                self?.lastError = "Admin access required to control discharge"
+                return
+            }
+            self.smcQueue.async {
+                let arg = shouldDischarge ? "discharge" : "nodischarge"
+                let ok = self.runSMCWrite(arg)
+                DispatchQueue.main.async {
+                    if ok {
+                        self.activeDischarging = shouldDischarge
+                        self.lastError = nil
+                        NSLog("BatteryManager: Active discharge %@", shouldDischarge ? "enabled" : "disabled")
+                    } else {
+                        self.lastError = "Failed to change discharge state"
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                        self.refresh()
+                    }
+                }
+            }
+        }
+    }
 
     func toggleCharging() {
         let shouldPause = !chargingPaused

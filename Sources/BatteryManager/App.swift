@@ -246,6 +246,9 @@ struct ContentView: View {
 
                 // Charge control button
                 chargeControlSection()
+
+                // Active discharge (experimental)
+                dischargeControlSection()
             }
 
             Divider().padding(.horizontal)
@@ -286,6 +289,7 @@ struct ContentView: View {
                 }
                 Spacer()
                 Button("About") {
+                    monitor.refreshSMCKeys()
                     showAbout = true
                 }
                 .font(.system(size: 12))
@@ -303,7 +307,7 @@ struct ContentView: View {
             .alert("BatteryManager v\(AppVersion.current)", isPresented: $showAbout) {
                 Button("OK") {}
             } message: {
-                Text("Battery status monitor and charge controller for Apple Silicon Macs.\n\nControls charging via SMC key CHTE.\nRequires admin privileges for charge control.")
+                Text("Battery status monitor and charge controller for Apple Silicon Macs.\n\nSMC CHTE (charge inhibit): \(monitor.smcCHTE)\nSMC CHIE (force discharge): \(monitor.smcCHIE)\n\nRequires admin privileges for charge control.")
             }
         }
         .padding(.vertical, 20)
@@ -359,6 +363,7 @@ struct ContentView: View {
         if monitor.autoManageEnabled && state.isCharging {
             return "Auto: charging to \(monitor.chargeUpperBound)%"
         }
+        if monitor.activeDischarging { return "Force discharging — running on battery while on AC" }
         if monitor.chargingPaused { return "Running on AC power - battery will not charge" }
         if !state.adapterConnected { return "Connect power adapter to control charging" }
         return ""
@@ -518,6 +523,55 @@ struct ContentView: View {
         .onHover { buttonHovered = $0 }
         .animation(.easeOut(duration: 0.15), value: buttonPressed)
         .animation(.easeOut(duration: 0.2), value: buttonHovered)
+        .padding(.horizontal, 16)
+    }
+
+    @State private var dischargeHovered = false
+    @State private var dischargePressed = false
+
+    private func dischargeControlSection() -> some View {
+        let baseColor: Color = monitor.activeDischarging ? .green : .red
+
+        return VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: monitor.activeDischarging ? "stop.fill" : "arrow.down.to.line")
+                    .font(.system(size: 14))
+                Text(monitor.activeDischarging ? "Stop Discharging" : "Force Discharge")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .foregroundColor(.white)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(baseColor)
+                    .brightness(dischargePressed ? -0.15 : dischargeHovered ? 0.1 : 0)
+                    .shadow(color: dischargeHovered ? baseColor.opacity(0.4) : .clear,
+                            radius: 6, x: 0, y: 2)
+            )
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in dischargePressed = true }
+                    .onEnded { _ in
+                        dischargePressed = false
+                        monitor.toggleDischarging()
+                    }
+            )
+            .onHover { dischargeHovered = $0 }
+            .animation(.easeOut(duration: 0.15), value: dischargePressed)
+            .animation(.easeOut(duration: 0.2), value: dischargeHovered)
+
+            if monitor.activeDischarging {
+                Text("System sleep is temporarily disabled while discharging")
+                    .font(.system(size: 10))
+                    .foregroundColor(.orange)
+            } else {
+                Text("Experimental — draws from battery while on AC (CHIE)")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+        }
         .padding(.horizontal, 16)
     }
 
