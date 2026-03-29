@@ -361,9 +361,12 @@ case "nodischarge":
             // Wait for USB-C PD renegotiation to complete before re-enabling
             // clamshell sleep, otherwise the brief display disruption triggers sleep.
             sleep(3)
+            _ = setDischargeSleepPrevention(enabled: false)
+        } else {
+            // Clean up stale sleep files without changing pmset settings
+            try? FileManager.default.removeItem(atPath: savedSleepPath)
+            try? FileManager.default.removeItem(atPath: savedSleepPath + "-display")
         }
-        // Always clean up sleep files/settings in case they're stale
-        _ = setDischargeSleepPrevention(enabled: false)
         print("OK: active discharge disabled")
         exit(0)
     } else {
