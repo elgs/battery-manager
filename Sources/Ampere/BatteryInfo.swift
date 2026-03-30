@@ -806,7 +806,7 @@ final class BatteryMonitor: ObservableObject {
                         self.lastError = nil
                         NSLog("Ampere: Charging %@", shouldPause ? "paused" : "resumed")
                     } else {
-                        self.lastError = "Failed to change charging state — try Revoke Admin Access, then re-grant"
+                        self.lastError = "Charge control failed — revoke and re-grant admin access"
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                         self.refresh()
