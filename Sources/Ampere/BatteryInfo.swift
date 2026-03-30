@@ -3,6 +3,7 @@ import AppKit
 import IOKit.ps
 import Shared
 
+
 struct BatteryState: Equatable {
     let percentage: Int
     let cycleCount: Int
@@ -205,13 +206,12 @@ final class BatteryMonitor: ObservableObject {
             && FileManager.default.fileExists(atPath: Self.helperPath)
     }
 
-    /// Check if the installed helper is older than the bundled one
+    /// Check if the installed helper differs from the bundled one
     private var isHelperStale: Bool {
-        let fm = FileManager.default
-        guard let installed = try? fm.attributesOfItem(atPath: Self.helperPath)[.modificationDate] as? Date,
-              let bundled = try? fm.attributesOfItem(atPath: smcWriterPath)[.modificationDate] as? Date
+        guard let installed = try? Data(contentsOf: URL(fileURLWithPath: Self.helperPath)),
+              let bundled = try? Data(contentsOf: URL(fileURLWithPath: smcWriterPath))
         else { return false }
-        return bundled > installed
+        return installed != bundled
     }
 
     /// Remove the sudoers rule and helper binary.
@@ -302,7 +302,10 @@ final class BatteryMonitor: ObservableObject {
         }
         smcQueue.async { [weak self] in
             let ok = self?.installSudo() ?? false
-            DispatchQueue.main.async { completion(ok) }
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                completion(ok)
+            }
         }
     }
 
