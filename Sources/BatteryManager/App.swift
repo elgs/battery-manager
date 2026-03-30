@@ -300,7 +300,6 @@ struct ContentView: View {
                 }
                 Spacer()
                 Button("About") {
-                    monitor.refreshSMCKeys()
                     showAbout = true
                 }
                 .font(.system(size: 12))

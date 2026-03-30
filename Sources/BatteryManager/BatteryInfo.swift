@@ -29,8 +29,6 @@ final class BatteryMonitor: ObservableObject {
     }
     @Published var lastError: String?
     @Published var pinned: Bool = false
-    @Published var smcCHTE: String = "?"
-    @Published var smcCHIE: String = "?"
     @Published var healthWarning: String?
     @Published var lastHealthCheckStatus: String = "pending"
     @Published var lastHealthCheckSMC: String = ""
@@ -355,20 +353,6 @@ final class BatteryMonitor: ObservableObject {
         return withUnsafeBytes(of: &raw) { Array($0.prefix(Int(dataSize))) }
     }
 
-    private static func formatSMCValue(_ bytes: [UInt8]) -> String {
-        let hex = bytes.map { String(format: "%02x", $0) }.joined(separator: " ")
-        let numeric: String? = bytes.withUnsafeBytes { buf -> String? in
-            switch bytes.count {
-            case 1: return "\(buf.load(as: UInt8.self))"
-            case 2: return "\(buf.load(as: UInt16.self))"
-            case 4: return "\(buf.load(as: UInt32.self))"
-            default: return nil
-            }
-        }
-        if let numeric { return "\(numeric) (0x\(hex))" }
-        return "0x\(hex)"
-    }
-
     // MARK: - Health Check
 
     /// Health check for manual mode.
@@ -409,23 +393,10 @@ final class BatteryMonitor: ObservableObject {
         }
     }
 
-    /// Read CHTE and CHIE from SMC and format for display.
-    func refreshSMCKeys() {
-        if let bytes = Self.smcReadKey("CHTE") {
-            smcCHTE = Self.formatSMCValue(bytes)
-        } else {
-            smcCHTE = "n/a"
-        }
-        if let bytes = Self.smcReadKey("CHIE") {
-            smcCHIE = Self.formatSMCValue(bytes)
-        } else {
-            smcCHIE = "n/a"
-        }
-    }
-
     // MARK: - Refresh
 
     func refresh() {
+        refreshCount += 1
         var battery = Self.readBattery()
 
         // Always update state immediately so the UI has data
@@ -549,7 +520,6 @@ final class BatteryMonitor: ObservableObject {
 
         // Health check: verify SMC state matches expected state.
         // Skip during the first few cycles to allow initial cleanup to settle.
-        refreshCount += 1
         if refreshCount > 3, !autoManageInFlight, isSudoRuleInstalled,
            let b = battery, b.adapterConnected {
             performHealthCheck(battery: b)
