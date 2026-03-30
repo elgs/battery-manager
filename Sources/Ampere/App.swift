@@ -118,8 +118,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) {
         monitor.pinned = false
         monitor.setFastPolling(false)
-        // Destroy the SwiftUI view to stop display-cycle layout passes
-        popover.contentViewController = nil
+        if !popover.isDetached {
+            popover.contentViewController = nil
+        }
     }
 
     deinit {
