@@ -299,6 +299,12 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                 }
                 Spacer()
+                if let newVersion = monitor.updateAvailable {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(.orange)
+                        .help("Update available: \(AppVersion.current) → \(newVersion)")
+                }
                 Button("About") {
                     showAbout = true
                 }

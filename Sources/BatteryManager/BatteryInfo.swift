@@ -34,6 +34,7 @@ final class BatteryMonitor: ObservableObject {
     @Published var lastHealthCheckStatus: String = "pending"
     @Published var lastHealthCheckSMC: String = ""
     @Published var lastHealthCheckTime: Date?
+    @Published var updateAvailable: String?  // nil = no update, otherwise the new version string
 
     @Published var autoManageEnabled: Bool {
         didSet {
@@ -48,6 +49,7 @@ final class BatteryMonitor: ObservableObject {
     }
 
     private var timer: Timer?
+    private var updateCheckTimer: Timer?
     private var terminationObserver: NSObjectProtocol?
     private var autoManageInFlight = false
     private var refreshCount = 0
@@ -90,6 +92,12 @@ final class BatteryMonitor: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             self?.refresh()
         }
+        // Check for updates: 5 minutes after launch, then once daily at a random interval
+        updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: false) { [weak self] _ in
+            self?.checkForUpdate()
+            self?.scheduleNextUpdateCheck()
+        }
+
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil, queue: .main
@@ -115,9 +123,58 @@ final class BatteryMonitor: ObservableObject {
 
     deinit {
         timer?.invalidate()
+        updateCheckTimer?.invalidate()
         if let observer = terminationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+    }
+
+    // MARK: - Update Check
+
+    private static let caskURL = URL(string: "https://raw.githubusercontent.com/elgs/homebrew-taps/main/Casks/battery-manager.rb")!
+
+    private func scheduleNextUpdateCheck() {
+        updateCheckTimer = Timer.scheduledTimer(
+            withTimeInterval: Double.random(in: 0 ..< 86400),
+            repeats: false
+        ) { [weak self] _ in
+            self?.checkForUpdate()
+            self?.scheduleNextUpdateCheck()
+        }
+    }
+
+    private func checkForUpdate() {
+        let task = URLSession.shared.dataTask(with: Self.caskURL) { [weak self] data, _, error in
+            guard let self, error == nil,
+                  let data, let content = String(data: data, encoding: .utf8) else { return }
+            // Parse: version "X.Y.Z" from the cask file
+            guard let range = content.range(of: #"version\s+"([^"]+)""#, options: .regularExpression),
+                  let versionRange = content[range].range(of: #""([^"]+)""#, options: .regularExpression) else { return }
+            let remote = String(content[versionRange]).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            let current = AppVersion.current.trimmingCharacters(in: CharacterSet(charactersIn: "v"))
+            DispatchQueue.main.async {
+                if Self.isNewerVersion(remote, than: current) {
+                    self.updateAvailable = remote
+                    NSLog("BatteryManager: Update available: %@ → %@", current, remote)
+                } else {
+                    self.updateAvailable = nil
+                }
+            }
+        }
+        task.resume()
+    }
+
+    /// Compare two dotted version strings (e.g. "0.0.18" > "0.0.17").
+    private static func isNewerVersion(_ remote: String, than current: String) -> Bool {
+        let r = remote.split(separator: ".").compactMap { Int($0) }
+        let c = current.split(separator: ".").compactMap { Int($0) }
+        for i in 0 ..< max(r.count, c.count) {
+            let rv = i < r.count ? r[i] : 0
+            let cv = i < c.count ? c[i] : 0
+            if rv > cv { return true }
+            if rv < cv { return false }
+        }
+        return false
     }
 
     // MARK: - Sudo Setup
