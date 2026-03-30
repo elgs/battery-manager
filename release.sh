@@ -51,7 +51,7 @@ cp "$REPO_DIR/Ampere.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 xcrun actool "$REPO_DIR/Assets.xcassets" \
     --compile "$APP_DIR/Contents/Resources" \
     --platform macosx --minimum-deployment-target 14.0 \
-    --app-icon AppIcon --output-partial-info-plist /dev/null 2>&1
+    --app-icon AppIcon --output-partial-info-plist /dev/null > /dev/null
 
 # Create Info.plist
 cat > "$APP_DIR/Contents/Info.plist" << PLIST
