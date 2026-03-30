@@ -71,7 +71,13 @@ final class BatteryMonitor: ObservableObject {
         // For CHTE: if auto-manage is enabled and charge is at or above the lower
         // bound, inhibit charging to prevent micro-charges between bounds after a
         // restart. Only allow charging when charge drops below the lower bound.
+        // If the helper was removed (e.g. brew uninstall), disable features that need it
         chargingPaused = false
+        if !isSudoRuleInstalled {
+            autoManageEnabled = false
+            autoDischargeEnabled = false
+            chargeToUpperBound = false
+        }
         if isSudoRuleInstalled {
             let shouldInhibit = autoManageEnabled
                 && (Self.readBattery()?.percentage ?? 0) >= chargeLowerBound
