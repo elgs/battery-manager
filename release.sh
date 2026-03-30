@@ -147,6 +147,7 @@ sed -i '' "s/sha256 \".*\"/sha256 \"$SHA256\"/" "Casks/${CASK_NAME}.rb"
 git add "Casks/${CASK_NAME}.rb"
 git commit -m "Update ${CASK_NAME} to v$VERSION"
 git push
+cd "$REPO_DIR"
 rm -rf "$TAP_DIR"
 
 echo "==> Updating local tap..."
