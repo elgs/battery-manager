@@ -8,7 +8,7 @@
 # Prerequisites:
 #   - Xcode with Developer ID certificate
 #   - Notarization credentials stored in keychain:
-#     xcrun notarytool store-credentials "BatteryManager"
+#     xcrun notarytool store-credentials "Ampere"
 #   - GitHub CLI (gh) authenticated
 #   - .project.env in the same directory
 #
@@ -42,12 +42,12 @@ mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
 # Copy binaries
-cp "$REPO_DIR/.build/release/BatteryManager" "$APP_DIR/Contents/MacOS/BatteryManager"
+cp "$REPO_DIR/.build/release/Ampere" "$APP_DIR/Contents/MacOS/Ampere"
 cp "$REPO_DIR/.build/release/SMCWriter" "$APP_DIR/Contents/MacOS/SMCWriter"
 
 # Write version file and copy icon
 echo "$VERSION" > "$APP_DIR/Contents/Resources/version.txt"
-cp "$REPO_DIR/BatteryManager.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+cp "$REPO_DIR/Ampere.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 
 # Create Info.plist
 cat > "$APP_DIR/Contents/Info.plist" << PLIST
@@ -56,13 +56,13 @@ cat > "$APP_DIR/Contents/Info.plist" << PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>BatteryManager</string>
+    <string>Ampere</string>
     <key>CFBundleIdentifier</key>
-    <string>com.elgs.battery-manager</string>
+    <string>com.elgs.ampere</string>
     <key>CFBundleName</key>
-    <string>BatteryManager</string>
+    <string>Ampere</string>
     <key>CFBundleDisplayName</key>
-    <string>BatteryManager</string>
+    <string>Ampere</string>
     <key>CFBundleVersion</key>
     <string>$VERSION</string>
     <key>CFBundleShortVersionString</key>
@@ -136,10 +136,10 @@ echo "==> Updating Homebrew cask..."
 TAP_DIR=$(mktemp -d)
 gh repo clone "$HOMEBREW_TAP_REPO" "$TAP_DIR" -- -q
 cd "$TAP_DIR"
-sed -i '' "s/version \".*\"/version \"$VERSION\"/" "Casks/${GITHUB_REPO#*/}.rb"
-sed -i '' "s/sha256 \".*\"/sha256 \"$SHA256\"/" "Casks/${GITHUB_REPO#*/}.rb"
-git add "Casks/${GITHUB_REPO#*/}.rb"
-git commit -m "Update ${GITHUB_REPO#*/} to v$VERSION"
+sed -i '' "s/version \".*\"/version \"$VERSION\"/" "Casks/${CASK_NAME}.rb"
+sed -i '' "s/sha256 \".*\"/sha256 \"$SHA256\"/" "Casks/${CASK_NAME}.rb"
+git add "Casks/${CASK_NAME}.rb"
+git commit -m "Update ${CASK_NAME} to v$VERSION"
 git push
 rm -rf "$TAP_DIR"
 
@@ -149,4 +149,4 @@ cd "$(brew --repo elgs/taps)" && git pull -q
 echo ""
 echo "==> Done! Released v$VERSION"
 echo "    GitHub: https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
-echo "    Install: brew tap elgs/taps && brew install --cask ${GITHUB_REPO#*/}"
+echo "    Install: brew tap elgs/taps && brew install --cask ${CASK_NAME}"

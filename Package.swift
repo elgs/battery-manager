@@ -2,13 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "BatteryManager",
+    name: "Ampere",
     platforms: [.macOS(.v14)],
     targets: [
         .target(name: "Shared"),
         .executableTarget(
-            name: "BatteryManager",
+            name: "Ampere",
             dependencies: ["Shared"],
+            path: "Sources/Ampere",
             linkerSettings: [
                 .linkedFramework("IOKit"),
                 .linkedFramework("AppKit"),

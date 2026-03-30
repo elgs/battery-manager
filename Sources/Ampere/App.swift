@@ -5,7 +5,7 @@ import ServiceManagement
 
 // MARK: - Menu Bar App
 
-struct BatteryManagerApp: App {
+struct AmpereApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
@@ -322,7 +322,7 @@ struct ContentView: View {
             .padding(.top, 4)
             .sheet(isPresented: $showAbout) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("BatteryManager \(AppVersion.current)")
+                    Text("Ampere \(AppVersion.current)")
                         .font(.headline)
                     Text("Battery status monitor and charge controller for Apple Silicon Macs.")
                         .font(.system(size: 12))
@@ -618,7 +618,7 @@ struct ContentView: View {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            NSLog("BatteryManager: Failed to \(enabled ? "enable" : "disable") launch at login: %@", error.localizedDescription)
+            NSLog("Ampere: Failed to \(enabled ? "enable" : "disable") launch at login: %@", error.localizedDescription)
             // Revert toggle on failure
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }

@@ -7,4 +7,4 @@ import SwiftUI
 NSApplication.shared.setActivationPolicy(.accessory)
 
 // Normal GUI launch
-BatteryManagerApp.main()
+AmpereApp.main()

@@ -1,11 +1,11 @@
-# BatteryManager
+# Ampere
 
 A lightweight macOS menu bar app for monitoring battery status and controlling charging on Apple Silicon Macs.
 
 <p align="center">
-  <img src="screenshot-auto.png" alt="BatteryManager — Auto charge mode" height="560">
+  <img src="screenshot-auto.png" alt="Ampere — Auto charge mode" height="560">
   &nbsp;&nbsp;
-  <img src="screenshot-manual.png" alt="BatteryManager — Manual pause charging" height="560">
+  <img src="screenshot-manual.png" alt="Ampere — Manual pause charging" height="560">
 </p>
 
 ## Features
@@ -34,21 +34,21 @@ A lightweight macOS menu bar app for monitoring battery status and controlling c
 
 ```bash
 brew tap elgs/taps
-brew install --cask battery-manager
+brew install --cask ampere
 ```
 
 ### Manual
 
-Download the latest `.dmg` from the [GitHub Releases](https://github.com/elgs/battery-manager/releases) page, open it, and drag **BatteryManager.app** to your Applications folder.
+Download the latest `.dmg` from the [GitHub Releases](https://github.com/elgs/ampere/releases) page, open it, and drag **Ampere.app** to your Applications folder.
 
 ## Usage
 
 ### Charge Control
 
-Pausing/resuming charging requires root access to write to the SMC. BatteryManager handles this as follows:
+Pausing/resuming charging requires root access to write to the SMC. Ampere handles this as follows:
 
 1. **First use** - when you enable charge control, macOS prompts for your admin password.
-2. **Setup** - a compiled helper binary (`SMCWriter`) is installed at `/usr/local/bin/az-battery-manager-smc` (owned by root), along with a sudoers rule at `/etc/sudoers.d/az-battery-manager` that allows passwordless execution of the helper.
+2. **Setup** - a compiled helper binary (`SMCWriter`) is installed at `/usr/local/bin/az-ampere-smc` (owned by root), along with a sudoers rule at `/etc/sudoers.d/az-ampere` that allows passwordless execution of the helper.
 3. **Subsequent use** - charge control works without password prompts.
 
 ### Auto Charge Management
@@ -124,7 +124,7 @@ Or manually:
 
 ```bash
 swift build -c debug
-.build/debug/BatteryManager
+.build/debug/Ampere
 ```
 
 ## Uninstall
@@ -132,25 +132,25 @@ swift build -c debug
 ### Remove the app
 
 ```bash
-brew uninstall battery-manager
+brew uninstall ampere
 ```
 
-Or delete `BatteryManager.app` from Applications.
+Or delete `Ampere.app` from Applications.
 
 ### Remove SMCWriter and admin access
 
 Charge control installs two privileged files that persist after the app is deleted:
 
-- `/usr/local/bin/az-battery-manager-smc` - the SMCWriter helper binary (runs as root to write SMC keys)
-- `/etc/sudoers.d/az-battery-manager` - the sudoers rule that allows passwordless execution of the helper
+- `/usr/local/bin/az-ampere-smc` - the SMCWriter helper binary (runs as root to write SMC keys)
+- `/etc/sudoers.d/az-ampere` - the sudoers rule that allows passwordless execution of the helper
 
 **From the UI:** Click **Revoke Admin Access** in the app's popover panel. This removes both files (prompts for your admin password).
 
 **From the command line:**
 
 ```bash
-sudo rm -f /usr/local/bin/az-battery-manager-smc
-sudo rm -f /etc/sudoers.d/az-battery-manager
+sudo rm -f /usr/local/bin/az-ampere-smc
+sudo rm -f /etc/sudoers.d/az-ampere
 ```
 
 ## Troubleshooting
@@ -204,7 +204,7 @@ With the lid open, the internal display keeps the system awake through the brief
 
 **`pmset -a sleep 0 disablesleep 1`** before the CHIE write. This disables all system sleep at the OS level, preventing macOS from sleeping during the PD disruption.
 
-When discharge is stopped, sleep is restored to the user's original setting via `pmset -a sleep <original> disablesleep 0`. The original sleep value is saved to `/tmp/.battery_manager_saved_sleep` before being overridden.
+When discharge is stopped, sleep is restored to the user's original setting via `pmset -a sleep <original> disablesleep 0`. The original sleep value is saved to `/tmp/.az-ampere-saved-sleep` before being overridden.
 
 ### Watchdog Daemon
 
@@ -224,7 +224,7 @@ On app launch, any orphaned watchdog processes from a previous crash are killed 
 ### Process Architecture
 
 ```
-BatteryManager (GUI, user)
+Ampere (GUI, user)
   |
   |-- sudo SMCWriter discharge:<app-pid>    (one-shot, root)
   |     |-- pmset -a sleep 0 disablesleep 1

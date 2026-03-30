@@ -53,7 +53,7 @@ final class BatteryMonitor: ObservableObject {
     private var terminationObserver: NSObjectProtocol?
     private var autoManageInFlight = false
     private var refreshCount = 0
-    private let smcQueue = DispatchQueue(label: "com.battery-manager.smc", qos: .utility)
+    private let smcQueue = DispatchQueue(label: "com.ampere.smc", qos: .utility)
 
     private static let sudoersPath = AppConstants.sudoersPath
     private static let helperPath = AppConstants.helperPath
@@ -81,9 +81,9 @@ final class BatteryMonitor: ObservableObject {
                 let okDischarge = self?.runSMCWriteViaSudo("nodischarge") ?? false
                 let okChte = self?.runSMCWriteViaSudo(shouldInhibit ? "inhibit" : "allow") ?? false
                 if okDischarge && okChte {
-                    NSLog("BatteryManager: Launch cleanup done (inhibit=%d)", shouldInhibit)
+                    NSLog("Ampere: Launch cleanup done (inhibit=%d)", shouldInhibit)
                 } else {
-                    NSLog("BatteryManager: Launch cleanup failed (nodischarge=%d, chte=%d)", okDischarge, okChte)
+                    NSLog("Ampere: Launch cleanup failed (nodischarge=%d, chte=%d)", okDischarge, okChte)
                 }
             }
         }
@@ -131,7 +131,7 @@ final class BatteryMonitor: ObservableObject {
 
     // MARK: - Update Check
 
-    private static let caskURL = URL(string: "https://raw.githubusercontent.com/elgs/homebrew-taps/main/Casks/battery-manager.rb")!
+    private static let caskURL = URL(string: "https://raw.githubusercontent.com/elgs/homebrew-taps/main/Casks/ampere.rb")!
 
     private func scheduleNextUpdateCheck() {
         updateCheckTimer = Timer.scheduledTimer(
@@ -155,7 +155,7 @@ final class BatteryMonitor: ObservableObject {
             DispatchQueue.main.async {
                 if Self.isNewerVersion(remote, than: current) {
                     self.updateAvailable = remote
-                    NSLog("BatteryManager: Update available: %@ → %@", current, remote)
+                    NSLog("Ampere: Update available: %@ → %@", current, remote)
                 } else {
                     self.updateAvailable = nil
                 }
@@ -202,7 +202,7 @@ final class BatteryMonitor: ObservableObject {
         smcQueue.async { [weak self] in
             guard let self = self else { return }
 
-            let cmd = "rm -f '\(Self.sudoersPath)' '\(Self.helperPath)' /etc/sudoers.d/battery-manager"
+            let cmd = "rm -f '\(Self.sudoersPath)' '\(Self.helperPath)'"
 
             // Always clear all SMC state BEFORE removing the helper (need sudo access).
             // Use unconditional writes since in-memory state may not reflect actual SMC state.
@@ -268,7 +268,6 @@ final class BatteryMonitor: ObservableObject {
             "chown root:wheel \(Self.helperPath)",
             "printf '%s' '\(user) ALL=(root) NOPASSWD: \(Self.helperPath)\n' > \(Self.sudoersPath)",
             "chmod 0440 \(Self.sudoersPath)",
-            "rm -f /etc/sudoers.d/battery-manager",
         ].joined(separator: " && ")
 
         return runAsAdmin(cmd)
@@ -298,7 +297,7 @@ final class BatteryMonitor: ObservableObject {
 
         let ok = runSMCWriteViaSudo("discharge:\(ProcessInfo.processInfo.processIdentifier)")
         if ok {
-            NSLog("BatteryManager: discharge daemon started")
+            NSLog("Ampere: discharge daemon started")
         }
         return ok
     }
@@ -306,7 +305,7 @@ final class BatteryMonitor: ObservableObject {
     /// Stop discharge: clear CHIE, kill watchdog, and restore sleep via one-shot command.
     private func stopDischarge() {
         _ = runSMCWriteViaSudo("nodischarge")
-        NSLog("BatteryManager: discharge stopped")
+        NSLog("Ampere: discharge stopped")
     }
 
     /// Run the SMCWriter helper via sudo (no password prompt).
@@ -314,7 +313,7 @@ final class BatteryMonitor: ObservableObject {
     @discardableResult
     private func runSMCWrite(_ arg: String) -> Bool {
         guard isSudoRuleInstalled else {
-            NSLog("BatteryManager: sudo helper not installed, cannot write SMC")
+            NSLog("Ampere: sudo helper not installed, cannot write SMC")
             return false
         }
         switch arg {
@@ -341,10 +340,10 @@ final class BatteryMonitor: ObservableObject {
             task.waitUntilExit()
             if task.terminationStatus == 0 { return true }
             let errMsg = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            NSLog("BatteryManager: sudo failed: %@", errMsg)
+            NSLog("Ampere: sudo failed: %@", errMsg)
             return false
         } catch {
-            NSLog("BatteryManager: failed to run sudo: %@", error.localizedDescription)
+            NSLog("Ampere: failed to run sudo: %@", error.localizedDescription)
             return false
         }
     }
@@ -476,7 +475,7 @@ final class BatteryMonitor: ObservableObject {
                     self.autoManageInFlight = false
                     if ok {
                         self.activeDischarging = false
-                        NSLog("BatteryManager: Auto-discharge toggled off")
+                        NSLog("Ampere: Auto-discharge toggled off")
                     }
                     self.refresh()
                 }
@@ -495,7 +494,7 @@ final class BatteryMonitor: ObservableObject {
                         self.autoManageInFlight = false
                         if ok {
                             self.activeDischarging = true
-                            NSLog("BatteryManager: Auto-discharge started at %d%%, target %d%%", b.percentage, self.chargeUpperBound)
+                            NSLog("Ampere: Auto-discharge started at %d%%, target %d%%", b.percentage, self.chargeUpperBound)
                         }
                         self.refresh()
                     }
@@ -510,7 +509,7 @@ final class BatteryMonitor: ObservableObject {
                         self.autoManageInFlight = false
                         if ok {
                             self.activeDischarging = false
-                            NSLog("BatteryManager: Auto-discharge reached target %d%%", self.chargeUpperBound)
+                            NSLog("Ampere: Auto-discharge reached target %d%%", self.chargeUpperBound)
                         }
                         self.refresh()
                     }
@@ -533,7 +532,7 @@ final class BatteryMonitor: ObservableObject {
                         if ok {
                             self.chargingPaused = true
                             self.chargeToUpperBound = false
-                            NSLog("BatteryManager: Inhibited charging at %d%%", b.percentage)
+                            NSLog("Ampere: Inhibited charging at %d%%", b.percentage)
                         }
                         self.refresh()
                     }
@@ -548,7 +547,7 @@ final class BatteryMonitor: ObservableObject {
                         self.autoManageInFlight = false
                         if ok {
                             self.chargingPaused = false
-                            NSLog("BatteryManager: Charging from %d%% to %d%%", b.percentage, self.chargeUpperBound)
+                            NSLog("Ampere: Charging from %d%% to %d%%", b.percentage, self.chargeUpperBound)
                         }
                         self.refresh()
                     }
@@ -634,7 +633,7 @@ final class BatteryMonitor: ObservableObject {
             healthWarning = nil
         } else {
             lastHealthCheckStatus = "FAIL"
-            NSLog("BatteryManager: Health check failed — CHTE=%d CHIE=%d charge=%d%% paused=%d auto=%d discharge=%d bounds=[%d,%d]",
+            NSLog("Ampere: Health check failed — CHTE=%d CHIE=%d charge=%d%% paused=%d auto=%d discharge=%d bounds=[%d,%d]",
                   chte, chie, battery.percentage, chargingPaused, autoManageEnabled, autoDischargeEnabled,
                   chargeLowerBound, chargeUpperBound)
             healthWarning = "SMC state mismatch — try Revoke Admin Access, then re-grant"
@@ -776,7 +775,7 @@ final class BatteryMonitor: ObservableObject {
                     if ok {
                         self.chargingPaused = shouldPause
                         self.lastError = nil
-                        NSLog("BatteryManager: Charging %@", shouldPause ? "paused" : "resumed")
+                        NSLog("Ampere: Charging %@", shouldPause ? "paused" : "resumed")
                     } else {
                         self.lastError = "Failed to change charging state"
                     }
