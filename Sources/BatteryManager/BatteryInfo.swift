@@ -31,6 +31,9 @@ final class BatteryMonitor: ObservableObject {
     @Published var pinned: Bool = false
     @Published var smcCHTE: String = "?"
     @Published var smcCHIE: String = "?"
+    @Published var healthWarning: String?
+    @Published var lastHealthCheckResult: String = "pending"
+    @Published var lastHealthCheckTime: Date?
 
     @Published var autoManageEnabled: Bool {
         didSet {
@@ -47,6 +50,7 @@ final class BatteryMonitor: ObservableObject {
     private var timer: Timer?
     private var terminationObserver: NSObjectProtocol?
     private var autoManageInFlight = false
+    private var refreshCount = 0
     private let smcQueue = DispatchQueue(label: "com.battery-manager.smc", qos: .utility)
 
     private static let sudoersPath = AppConstants.sudoersPath
@@ -364,6 +368,58 @@ final class BatteryMonitor: ObservableObject {
         return "0x\(hex)"
     }
 
+    /// Read the raw numeric value of CHTE (0 = charging allowed, 1 = charging paused).
+    private static func smcReadCHTEValue() -> Int? {
+        guard let bytes = smcReadKey("CHTE"), bytes.count == 4 else { return nil }
+        return bytes.withUnsafeBytes { Int($0.load(as: UInt32.self)) }
+    }
+
+    /// Read the raw numeric value of CHIE (0x00 = normal, 0x08 = discharge active).
+    private static func smcReadCHIEValue() -> Int? {
+        guard let bytes = smcReadKey("CHIE"), bytes.count == 1 else { return nil }
+        return Int(bytes[0])
+    }
+
+    // MARK: - Health Check
+
+    /// Health check for manual mode.
+    /// Returns true if SMC state is consistent with the pause button state.
+    static func healthCheckManualMode(pauseButtonPaused: Bool, chie: Int, chte: Int) -> Bool {
+        guard chie == 0 else { return false }
+        if pauseButtonPaused {
+            return chte == 1
+        } else {
+            return chte == 0
+        }
+    }
+
+    /// Health check for auto mode.
+    /// Returns true if SMC state is consistent with auto-manage settings.
+    static func healthCheckAutoMode(
+        chargeLevel: Int, lowerBound: Int, upperBound: Int,
+        dischargeEnabled: Bool, chie: Int, chte: Int
+    ) -> Bool {
+        if dischargeEnabled {
+            if chargeLevel > upperBound {
+                return chte == 1 && chie == 8
+            } else if chargeLevel >= lowerBound {
+                // Between bounds (inclusive): chte can be 0 or 1, chie must be 0
+                return chie == 0
+            } else {
+                return chte == 0 && chie == 0
+            }
+        } else {
+            guard chie == 0 else { return false }
+            if chargeLevel >= upperBound {
+                return chte == 1
+            } else if chargeLevel >= lowerBound {
+                return true // chte can be 0 or 1
+            } else {
+                return chte == 0
+            }
+        }
+    }
+
     /// Read CHTE and CHIE from SMC and format for display.
     func refreshSMCKeys() {
         if let bytes = Self.smcReadKey("CHTE") {
@@ -501,6 +557,52 @@ final class BatteryMonitor: ObservableObject {
         }
 
         state = battery
+
+        // Health check: verify SMC state matches expected state.
+        // Skip during the first few cycles to allow initial cleanup to settle.
+        refreshCount += 1
+        if refreshCount > 3, !autoManageInFlight, isSudoRuleInstalled,
+           let b = battery, b.adapterConnected {
+            performHealthCheck(battery: b)
+        } else {
+            healthWarning = nil
+        }
+    }
+
+    private func performHealthCheck(battery: BatteryState) {
+        guard let chte = Self.smcReadCHTEValue(),
+              let chie = Self.smcReadCHIEValue() else {
+            healthWarning = nil
+            return
+        }
+
+        let healthy: Bool
+        if autoManageEnabled {
+            healthy = Self.healthCheckAutoMode(
+                chargeLevel: battery.percentage,
+                lowerBound: chargeLowerBound,
+                upperBound: chargeUpperBound,
+                dischargeEnabled: autoDischargeEnabled,
+                chie: chie, chte: chte
+            )
+        } else {
+            healthy = Self.healthCheckManualMode(
+                pauseButtonPaused: chargingPaused,
+                chie: chie, chte: chte
+            )
+        }
+
+        lastHealthCheckTime = Date()
+        if healthy {
+            lastHealthCheckResult = "pass (CHTE=\(chte) CHIE=\(chie))"
+            healthWarning = nil
+        } else {
+            lastHealthCheckResult = "FAIL (CHTE=\(chte) CHIE=\(chie))"
+            NSLog("BatteryManager: Health check failed — CHTE=%d CHIE=%d charge=%d%% paused=%d auto=%d discharge=%d bounds=[%d,%d]",
+                  chte, chie, battery.percentage, chargingPaused, autoManageEnabled, autoDischargeEnabled,
+                  chargeLowerBound, chargeUpperBound)
+            healthWarning = "SMC state mismatch — try Revoke Admin Access, then re-grant"
+        }
     }
 
     static func readBattery() -> BatteryState? {

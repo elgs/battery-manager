@@ -70,6 +70,33 @@ When auto charge management is off and a power adapter is connected, a manual **
 - **Settings persist across restarts** - auto charge management, discharge toggle, and charge bounds are saved and restored when the app relaunches.
 - **Quitting the app restores system defaults** - all SMC overrides (charging inhibit, discharge) and power management changes (sleep settings) are cleared when the app exits. Your Mac returns to its normal charging and sleep behavior. If the app crashes or is force-killed, a watchdog daemon cleans up automatically within a few seconds.
 
+### Health Check
+
+The app periodically verifies that the actual SMC key values (`CHTE` and `CHIE`) match the expected state. If a mismatch is detected, a warning is shown suggesting you revoke and re-grant admin access.
+
+#### Manual Mode
+
+| Pause button | Expected CHTE | Expected CHIE |
+|---|---|---|
+| Paused | 1 | 0 |
+| Resumed | 0 | 0 |
+
+#### Auto Mode — Discharge to Upper Bound OFF
+
+| Charge level | Expected CHTE | Expected CHIE |
+|---|---|---|
+| >= upper bound | 1 | 0 |
+| >= lower bound and < upper bound | 0 or 1 | 0 |
+| < lower bound | 0 | 0 |
+
+#### Auto Mode — Discharge to Upper Bound ON
+
+| Charge level | Expected CHTE | Expected CHIE |
+|---|---|---|
+| > upper bound | 1 | 8 |
+| >= lower bound and <= upper bound | 0 or 1 | 0 |
+| < lower bound | 0 | 0 |
+
 ## Build from Source
 
 ```bash

@@ -204,6 +204,13 @@ struct ContentView: View {
     @State private var capacityShowMAh = false
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
+    private var healthCheckTimeString: String {
+        guard let time = monitor.lastHealthCheckTime else { return "n/a" }
+        let fmt = DateFormatter()
+        fmt.dateFormat = "HH:mm:ss"
+        return fmt.string(from: time)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if let state = monitor.state {
@@ -311,7 +318,7 @@ struct ContentView: View {
             .alert("BatteryManager v\(AppVersion.current)", isPresented: $showAbout) {
                 Button("OK") {}
             } message: {
-                Text("Battery status monitor and charge controller for Apple Silicon Macs.\n\nSMC CHTE (charge inhibit): \(monitor.smcCHTE)\nSMC CHIE (force discharge): \(monitor.smcCHIE)\n\nRequires admin privileges for charge control.")
+                Text("Battery status monitor and charge controller for Apple Silicon Macs.\n\nSMC CHTE (charge inhibit): \(monitor.smcCHTE)\nSMC CHIE (force discharge): \(monitor.smcCHIE)\n\nHealth check: \(monitor.lastHealthCheckResult)\nChecked at: \(healthCheckTimeString)\n\nRequires admin privileges for charge control.")
             }
         }
         .padding(.vertical, 20)
@@ -359,6 +366,7 @@ struct ContentView: View {
 
     private func statusMessage(_ state: BatteryState) -> String {
         if let error = monitor.lastError { return error }
+        if let warning = monitor.healthWarning { return warning }
         if monitor.activeDischarging {
             return "Discharging to \(monitor.chargeUpperBound)% — sleep is temporarily disabled"
         }
@@ -378,6 +386,7 @@ struct ContentView: View {
 
     private func statusMessageColor(_ state: BatteryState) -> Color {
         if monitor.lastError != nil { return .red }
+        if monitor.healthWarning != nil { return .red }
         if monitor.activeDischarging { return .orange }
         if monitor.chargingPaused { return .blue }
         return .secondary
