@@ -626,8 +626,8 @@ final class BatteryMonitor: ObservableObject {
         }
 
         // Health check: verify SMC state matches expected state.
-        // Run every 12 refresh cycles, skip first few cycles for cleanup to settle.
-        if refreshCount > 3, refreshCount % 12 == 0, !autoManageInFlight, isSudoRuleInstalled,
+        // Skip first few cycles for cleanup to settle.
+        if refreshCount > 3, !autoManageInFlight, isSudoRuleInstalled,
            let b = battery, b.adapterConnected {
             performHealthCheck(battery: b)
         }

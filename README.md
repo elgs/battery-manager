@@ -89,7 +89,22 @@ When auto charge management is off and a power adapter is connected, a manual **
 
 ### Health Check
 
-The app periodically verifies that the actual SMC key values (`CHTE` and `CHIE`) match the expected state. If a mismatch is detected, a warning is shown suggesting you revoke and re-grant admin access.
+The app periodically verifies that the actual SMC key values (`CHTE` and `CHIE`) match the expected state. If a mismatch is detected, a warning is shown in the popover and the menu bar battery icon turns orange.
+
+#### Polling and Health Check Timing
+
+The app polls battery state on a timer. Health checks run every poll cycle after an initial 3-cycle warm-up (to let launch cleanup settle).
+
+|  | Popover closed (slow) | Popover open (fast) |
+|---|---|---|
+| **First poll** | Immediately on launch | Immediately on open |
+| **Poll interval** | 60s | 10s |
+| **First health check** | Cycle 4 — 3 min after launch | Cycle 4 — ~30s after open* |
+| **Health check interval** | Every cycle — 60s | Every cycle — 10s |
+
+\* The cycle counter is global and does not reset when switching between fast and slow polling. If the app has already been running, the first health check after opening the popover depends on the current cycle count.
+
+Health checks also run immediately after revoking or re-granting admin access, so the warning clears (or appears) without waiting for the next scheduled check.
 
 #### Manual Mode
 
