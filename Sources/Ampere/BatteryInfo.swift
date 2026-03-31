@@ -150,7 +150,6 @@ final class BatteryMonitor: ObservableObject {
                     _ = self.startDischarge()
                 } else if self.chargingPaused {
                     _ = self.runSMCWriteViaSudo("inhibit")
-                    _ = self.runSMCWriteViaSudo("spawn-watchdog:\(ProcessInfo.processInfo.processIdentifier)")
                 }
                 DispatchQueue.main.async {
                     self.refresh()
