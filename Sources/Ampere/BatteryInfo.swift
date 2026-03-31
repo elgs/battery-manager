@@ -453,11 +453,11 @@ final class BatteryMonitor: ObservableObject {
     /// Health check for manual mode.
     /// Returns true if SMC state is consistent with the pause button state.
     static func healthCheckManualMode(pauseButtonPaused: Bool, chie: Int, chte: Int) -> Bool {
-        guard chie == 0 else { return false }
+        guard chie == SMC.chieNormalInt else { return false }
         if pauseButtonPaused {
-            return chte == 1
+            return chte == SMC.chteInhibitInt
         } else {
-            return chte == 0
+            return chte == SMC.chteAllowInt
         }
     }
 
@@ -469,21 +469,21 @@ final class BatteryMonitor: ObservableObject {
     ) -> Bool {
         if dischargeEnabled {
             if chargeLevel > upperBound {
-                return chte == 1 && chie == 8
+                return chte == SMC.chteInhibitInt && chie == SMC.chieDischargeInt
             } else if chargeLevel >= lowerBound {
                 // Between bounds (inclusive): chte can be 0 or 1, chie must be 0
-                return chie == 0
+                return chie == SMC.chieNormalInt
             } else {
-                return chte == 0 && chie == 0
+                return chte == SMC.chteAllowInt && chie == SMC.chieNormalInt
             }
         } else {
-            guard chie == 0 else { return false }
+            guard chie == SMC.chieNormalInt else { return false }
             if chargeLevel >= upperBound {
-                return chte == 1
+                return chte == SMC.chteInhibitInt
             } else if chargeLevel >= lowerBound {
                 return true // chte can be 0 or 1
             } else {
-                return chte == 0
+                return chte == SMC.chteAllowInt
             }
         }
     }
@@ -497,26 +497,26 @@ final class BatteryMonitor: ObservableObject {
         if autoManageEnabled {
             if dischargeEnabled {
                 if chargeLevel > upperBound {
-                    return ("0x01 00 00 00", "0x08")
+                    return (SMC.chteInhibitHex, SMC.chieDischargeHex)
                 } else if chargeLevel >= lowerBound {
-                    return ("0x00 or 0x01", "0x00")
+                    return (SMC.chteEitherHex, SMC.chieNormalHex)
                 } else {
-                    return ("0x00 00 00 00", "0x00")
+                    return (SMC.chteAllowHex, SMC.chieNormalHex)
                 }
             } else {
                 if chargeLevel >= upperBound {
-                    return ("0x01 00 00 00", "0x00")
+                    return (SMC.chteInhibitHex, SMC.chieNormalHex)
                 } else if chargeLevel >= lowerBound {
-                    return ("0x00 or 0x01", "0x00")
+                    return (SMC.chteEitherHex, SMC.chieNormalHex)
                 } else {
-                    return ("0x00 00 00 00", "0x00")
+                    return (SMC.chteAllowHex, SMC.chieNormalHex)
                 }
             }
         } else {
             if pauseButtonPaused {
-                return ("0x01 00 00 00", "0x00")
+                return (SMC.chteInhibitHex, SMC.chieNormalHex)
             } else {
-                return ("0x00 00 00 00", "0x00")
+                return (SMC.chteAllowHex, SMC.chieNormalHex)
             }
         }
     }
@@ -675,8 +675,8 @@ final class BatteryMonitor: ObservableObject {
     }
 
     private func performHealthCheck(battery: BatteryState) {
-        guard let chteBytes = Self.smcReadKey("CHTE"), chteBytes.count == 4,
-              let chieBytes = Self.smcReadKey("CHIE"), chieBytes.count == 1 else {
+        guard let chteBytes = Self.smcReadKey(SMC.keyChargeTerminate), chteBytes.count == 4,
+              let chieBytes = Self.smcReadKey(SMC.keyChargeInhibit), chieBytes.count == 1 else {
             healthWarning = nil
             return
         }
@@ -703,7 +703,7 @@ final class BatteryMonitor: ObservableObject {
         let chteHex = Self.formatHex(chteBytes)
         let chieHex = Self.formatHex(chieBytes)
         lastHealthCheckTime = Date()
-        lastHealthCheckSMC = "CHTE=\(chteHex)\nCHIE=\(chieHex)"
+        lastHealthCheckSMC = "\(SMC.keyChargeTerminate)=\(chteHex)\n\(SMC.keyChargeInhibit)=\(chieHex)"
         if healthy {
             lastHealthCheckStatus = "pass"
             lastHealthCheckExpected = ""
@@ -720,8 +720,8 @@ final class BatteryMonitor: ObservableObject {
                 upperBound: chargeUpperBound,
                 dischargeEnabled: autoDischargeEnabled
             )
-            lastHealthCheckExpected = "CHTE=\(expected.chte)\nCHIE=\(expected.chie)"
-            lastHealthCheckCHTEMatch = chteHex == expected.chte || expected.chte == "0x00 or 0x01"
+            lastHealthCheckExpected = "\(SMC.keyChargeTerminate)=\(expected.chte)\n\(SMC.keyChargeInhibit)=\(expected.chie)"
+            lastHealthCheckCHTEMatch = chteHex == expected.chte || expected.chte == SMC.chteEitherHex
             lastHealthCheckCHIEMatch = chieHex == expected.chie
             NSLog("Ampere: Health check failed — CHTE=%d CHIE=%d charge=%d%% paused=%d auto=%d discharge=%d bounds=[%d,%d]",
                   chte, chie, battery.percentage, chargingPaused, autoManageEnabled, autoDischargeEnabled,

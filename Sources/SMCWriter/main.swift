@@ -286,8 +286,7 @@ if action.hasPrefix("discharge:") {
 
     _ = setDischargeSleepPrevention(enabled: true)
 
-    let chieValue: [UInt8] = [0x08]
-    guard smcWriteKey(conn, "CHIE", chieValue) else {
+    guard smcWriteKey(conn, SMC.keyChargeInhibit, SMC.chieDischarge) else {
         _ = setDischargeSleepPrevention(enabled: false)
         IOServiceClose(conn)
         fputs("ERROR: SMC write failed for CHIE\n", stderr)
@@ -314,8 +313,8 @@ if action.hasPrefix("watchdog:") {
         if kill(appPID, 0) != 0 {
             // App is gone — clean up
             if let conn = smcOpen() {
-                _ = smcWriteKey(conn, "CHIE", [0x00])
-                _ = smcWriteKey(conn, "CHTE", [0x00, 0x00, 0x00, 0x00])
+                _ = smcWriteKey(conn, SMC.keyChargeInhibit, SMC.chieNormal)
+                _ = smcWriteKey(conn, SMC.keyChargeTerminate, SMC.chteAllow)
                 IOServiceClose(conn)
             }
             // Wait for PD renegotiation to settle before restoring sleep
@@ -341,8 +340,7 @@ defer { IOServiceClose(conn) }
 
 switch action {
 case "inhibit":
-    let chteValue: [UInt8] = [0x01, 0x00, 0x00, 0x00]
-    if smcWriteKey(conn, "CHTE", chteValue) {
+    if smcWriteKey(conn, SMC.keyChargeTerminate, SMC.chteInhibit) {
         print("OK: charging inhibited")
         exit(0)
     } else {
@@ -351,8 +349,7 @@ case "inhibit":
     }
 
 case "allow":
-    let chteValue: [UInt8] = [0x00, 0x00, 0x00, 0x00]
-    if smcWriteKey(conn, "CHTE", chteValue) {
+    if smcWriteKey(conn, SMC.keyChargeTerminate, SMC.chteAllow) {
         print("OK: charging allowed")
         exit(0)
     } else {
@@ -372,9 +369,8 @@ case "nodischarge":
     killTask.waitUntilExit()
 
     // Clears CHIE and restores sleep if discharge was active.
-    let wasDischarging = smcReadKey(conn, "CHIE").map { $0.contains(where: { $0 != 0 }) } ?? false
-    let chieValue: [UInt8] = [0x00]
-    if smcWriteKey(conn, "CHIE", chieValue) {
+    let wasDischarging = smcReadKey(conn, SMC.keyChargeInhibit).map { $0.contains(where: { $0 != 0 }) } ?? false
+    if smcWriteKey(conn, SMC.keyChargeInhibit, SMC.chieNormal) {
         if wasDischarging {
             // Wait for USB-C PD renegotiation to complete before re-enabling
             // clamshell sleep, otherwise the brief display disruption triggers sleep.
