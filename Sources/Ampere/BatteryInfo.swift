@@ -91,19 +91,14 @@ final class BatteryMonitor: ObservableObject {
         // restart. Only allow charging when charge drops below the lower bound.
         // If the helper was removed (e.g. brew uninstall), disable features that need it
         chargingPaused = false
-        if !isSudoRuleInstalled {
-            autoManageEnabled = false
-            autoDischargeEnabled = false
-            chargeToUpperBound = false
-        }
-        if isSudoRuleInstalled && isHelperStale {
-            NSLog("Ampere: Helper is stale, re-installing…")
+        if !isSudoRuleInstalled || isHelperStale {
+            NSLog("Ampere: Helper %@, installing…", !isSudoRuleInstalled ? "missing" : "stale")
             if !installSudo() {
-                NSLog("Ampere: Helper re-install failed or cancelled, quitting")
+                NSLog("Ampere: Helper install failed or cancelled, quitting")
                 DispatchQueue.main.async {
                     let alert = NSAlert()
                     alert.messageText = "Admin Access Required"
-                    alert.informativeText = "Ampere needs to update its helper tool after an upgrade. Please relaunch and enter your admin password."
+                    alert.informativeText = "Ampere needs admin access to install its helper tool. Please relaunch and enter your admin password."
                     alert.alertStyle = .critical
                     alert.runModal()
                     NSApp.terminate(nil)

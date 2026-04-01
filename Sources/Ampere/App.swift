@@ -75,6 +75,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var lastIconPct: Int = -1
     private var lastIconCharging: Bool = false
     private var lastIconWarning: Bool = false
+    private var animationTimer: Timer?
+    private var animationPct: Int = 0
 
     private func updateMenuBarIcon() {
         guard let button = statusItem.button else { return }
@@ -82,15 +84,40 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let isCharging = monitor.state?.isCharging ?? false
         let hasWarning = monitor.healthWarning != nil
 
-        // Skip redraw if nothing visible changed
-        guard pct != lastIconPct || isCharging != lastIconCharging || hasWarning != lastIconWarning else { return }
+        let isAnimatingDown = monitor.activeDischarging
+
+        // Manage animation timer
+        let needsAnimation = isCharging || isAnimatingDown
+        if isCharging != lastIconCharging || pct != lastIconPct || needsAnimation != (animationTimer != nil) {
+            animationTimer?.invalidate()
+            animationTimer = nil
+            if needsAnimation {
+                animationPct = isCharging ? 0 : pct
+                animationTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
+                    guard let self, let button = self.statusItem.button else { return }
+                    let curPct = self.monitor.state?.percentage ?? 0
+                    if self.monitor.state?.isCharging ?? false {
+                        self.animationPct += 10
+                        if self.animationPct > curPct { self.animationPct = 0 }
+                    } else {
+                        self.animationPct -= 10
+                        if self.animationPct < 0 { self.animationPct = curPct }
+                    }
+                    button.image = self.buildMenuBarIcon(
+                        percentage: CGFloat(self.animationPct),
+                        hasWarning: hasWarning
+                    )
+                }
+            }
+        }
+
         lastIconPct = pct
         lastIconCharging = isCharging
         lastIconWarning = hasWarning
 
+        let displayPct = needsAnimation ? animationPct : pct
         button.image = buildMenuBarIcon(
-            percentage: CGFloat(pct),
-            isCharging: isCharging,
+            percentage: CGFloat(displayPct),
             hasWarning: hasWarning
         )
         let titleAttrs: [NSAttributedString.Key: Any] = hasWarning
@@ -154,7 +181,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    private func buildMenuBarIcon(percentage: CGFloat, isCharging: Bool, hasWarning: Bool = false) -> NSImage {
+    private func buildMenuBarIcon(percentage: CGFloat, hasWarning: Bool = false) -> NSImage {
         let battW: CGFloat = 24
         let battH: CGFloat = 11
         let capW: CGFloat = 2.8
@@ -171,7 +198,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let bodyRect = NSRect(x: 0.5, y: battY + 0.5, width: battW - 1, height: battH - 1)
         let path = NSBezierPath(roundedRect: bodyRect, xRadius: 2, yRadius: 2)
         color.withAlphaComponent(0.7).setStroke()
-        path.lineWidth = 1.2
+        path.lineWidth = 1
         path.stroke()
 
         // Battery cap
@@ -188,34 +215,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         color.setFill()
         NSBezierPath(roundedRect: fillRect, xRadius: 1, yRadius: 1).fill()
 
-        // Overlay bolt SF Symbol when charging
-        if isCharging,
-           let symbol = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil) {
-            let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .black)
-            let configured = symbol.withSymbolConfiguration(config) ?? symbol
-            let symSize = configured.size
-            let symX = (battW - symSize.width) / 2
-            let symY = (totalH - symSize.height) / 2
-
-            // Erase area behind symbol
-            NSGraphicsContext.current?.compositingOperation = .copy
-            NSColor.clear.setFill()
-            NSBezierPath(ovalIn: NSRect(x: symX, y: symY,
-                                         width: symSize.width, height: symSize.height)).fill()
-            NSGraphicsContext.current?.compositingOperation = .sourceOver
-
-            // Draw the symbol in black
-            // Need to tint it black since it's a template
-            let tinted = NSImage(size: symSize)
-            tinted.lockFocus()
-            color.set()
-            NSRect(origin: .zero, size: symSize).fill()
-            configured.draw(in: NSRect(origin: .zero, size: symSize),
-                           from: .zero, operation: .destinationIn, fraction: 1.0)
-            tinted.unlockFocus()
-
-            tinted.draw(in: NSRect(x: symX, y: symY, width: symSize.width, height: symSize.height))
-        }
 
         image.unlockFocus()
         image.isTemplate = !hasWarning
